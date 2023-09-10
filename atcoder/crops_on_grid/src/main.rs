@@ -9,11 +9,16 @@ struct Input {
     H: usize,
     W: usize,
     i0: usize,
-    h: Vec<Vec<usize>>,
-    v: Vec<Vec<usize>>,
+    h: Vec<Vec<bool>>,
+    v: Vec<Vec<bool>>,
     K: usize,
     S: Vec<usize>,
     D: Vec<usize>,
+}
+impl Input {
+    pub fn is_valid_point(&self, x: usize, y: usize) -> bool {
+        x < self.H && y < self.W
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -39,153 +44,182 @@ impl Work {
     }
 }
 
-fn numbering(i: usize, j: usize, w: usize) -> usize {
-    i * w + j
+pub struct Output {
+    M: usize,
+    works: Vec<Work>,
 }
 
-fn validate(works: &[Work], input: &Input) -> bool {
-    let vs = input.H * input.W;
-    let mut es = vec![BTreeSet::<usize>::new(); vs]; // 隣接リスト
-    let num = |i: usize, j: usize| numbering(i, j, input.W);
+impl Output {
+    fn validate(&self, input: &Input) -> Result<(), String> {
+        // check range
+        for Work {
+            k, i: _, j: _, s, ..
+        } in self.works.iter().cloned()
+        {
+            let ub = input.S[k];
+            if s > ub {
+                return Err(format!("Cannot plant crop {} after month {}", k + 1, ub));
+            }
+        }
 
-    // 土地の区画について、無向グラフの隣接リスト
-    for i in 0..input.H {
-        for j in 0..input.W {
-            let v = num(i, j); // 頂点番号
-
-            // 右左上下
-            for (di, dj) in &[(0, 1), (0, -1), (1, 0), (-1, 0)] {
-                let ni = i as isize + di;
-                let nj = j as isize + dj;
-
-                // 範囲内
-                if 0 <= nj && (nj as usize) < input.W && 0 <= ni && (ni as usize) < input.H {
-                    let neighbor = num(ni as usize, nj as usize);
-                    es[v].insert(neighbor);
+        // check duplicates
+        {
+            let mut items = BTreeSet::new();
+            for Work { k, .. } in self.works.iter() {
+                if !items.insert(*k) {
+                    return Err(format!("Crop {} is planted more than once", k + 1));
                 }
             }
         }
-    }
-
-    // 水路があれば隣接する区画から辺を取り除く.
-    for (i, row) in input.h.iter().enumerate() {
-        for (j, &x) in row.iter().enumerate() {
-            if x == 1 {
-                // もし水路があれば、`南側`の隣接する頂点間の経路を両隣接リストから取り除く.
-                let up = num(i, j);
-                let low = num(i + 1, j);
-                es[up].remove(&low);
-                es[low].remove(&up);
-            }
-        }
-    }
-
-    for (i, row) in input.v.iter().enumerate() {
-        for (j, &x) in row.iter().enumerate() {
-            if x == 1 {
-                // もし水路があれば、`東側`の隣接する頂点間の経路を両隣接リストから取り除く.
-                let left = num(i, j);
-                let right = num(i, j + 1);
-                es[left].remove(&right);
-                es[right].remove(&left);
-            }
-        }
-    }
-
-    // 植える日s をkey にした計画をリストとした辞書を用意
-    let mut ps = BTreeMap::<usize, Vec<Work>>::new();
-    works
-        .iter()
-        .for_each(|p| ps.entry(p.s).or_insert(vec![]).push(p.clone()));
-
-    // 収穫日のd をkey にした計画をリストとした辞書を用意
-    let mut planted = BTreeMap::<usize, Vec<Work>>::new();
-
-    // NOTE: used: その区画に作物を植えているか否か.
-    // 値:-1 は使っていない. 値: k はタイプk の作物を植えている
-    let mut used = std::iter::repeat(-1).take(vs).collect::<Vec<_>>();
-
-    for t in 0..input.T {
-        // 連結成分 出入口から探索開始
-
-        let mut par = (0..vs).collect_vec();
-        let mut q = VecDeque::new();
-        q.push_back(input.i0);
-        while let Some(u) = q.pop_back() {
-            for &y in &es[u] {
-                // 未訪問の頂点（マーカーが自分自身）and 区画に作物が植えられていない
-                if par[y] == y && used[y] == -1 {
-                    q.push_back(y);
-                    par[y] = input.i0;
-                }
-            }
-        }
-
-        // 先に植える
-        if let Some(xs) = ps.get(&t) {
-            for p in xs {
-                // 出入口は塞げない.
-                if p.i == input.i0 && p.j == 0 {
-                    return false;
-                }
-
-                // 連結してない（道が塞がっている）or S が決められた日付より後に植える予定になっている, or すでに区画に植えられてる
-                let v = num(p.i, p.j);
-                if input.i0 != par[v] || p.s > input.S[p.k] || used[v] != -1 {
-                    return false;
-                }
-                used[v] = p.k as isize; // 植える
-
-                // 収穫する日程をkey
-                planted
-                    .entry(input.D[used[v] as usize])
-                    .or_insert(vec![])
-                    .push(p.clone());
-            }
-        }
-
-        // 作物を植えた後の連結区画の具合で、収穫ができたりできなかったり...
-        let mut par = (0..vs).collect_vec();
-        let mut q = VecDeque::new();
-        q.push_back(input.i0);
-        while let Some(u) = q.pop_back() {
-            for &y in &es[u] {
-                // 未訪問の頂点（マーカーが自分自身）and (区画に作物が植えられていない or 植えられている作物が収穫日と一致)
-                if par[y] == y && (used[y] == -1 || input.D[used[y] as usize] == t) {
-                    q.push_back(y);
-                    par[y] = input.i0;
-                }
-            }
-        }
-
-        // 収穫
-        if let Some(xs) = planted.get(&t) {
-            for x in xs {
-                // 連結してない
-                let v = num(x.i, x.j);
-                if input.i0 != par[v] {
-                    return false;
-                }
-                used[v] = -1; // 収穫
-            }
-        }
-    }
-
-    true
-}
-
-// 計画に整合性があるかを先にチェックして問題がなければスコア計算する, 問題があれば0
-fn compute_score(works: &Vec<Work>, input: &Input) -> isize {
-    if validate(works, input) {
-        let mut score = 0;
-        for p in works {
-            score += input.D[p.k] - input.S[p.k] + 1;
-        }
-        score as isize
-    } else {
-        0
+        Ok(())
     }
 }
+
+fn compute_score(input: &Input, out: &Output) -> (i64, String) {
+    if let Err(msg) = out.validate(input) {
+        return (0, msg);
+    }
+
+    let mut scheduled_works: Vec<Vec<Work>> = vec![vec![]; input.T + 1];
+    for w in out.works.iter().cloned() {
+        scheduled_works[w.s].push(w)
+    }
+
+    let mut workspace = vec![vec![None; input.W]; input.H];
+    let adj = {
+        let mut adj = vec![vec![Vec::new(); input.W]; input.H];
+        for i in 0..input.H {
+            for j in 0..input.W {
+                if i + 1 < input.H && !input.h[i][j] {
+                    adj[i + 1][j].push((i, j));
+                    adj[i][j].push((i + 1, j));
+                }
+                if j + 1 < input.W && !input.v[i][j] {
+                    adj[i][j + 1].push((i, j));
+                    adj[i][j].push((i, j + 1))
+                }
+            }
+        }
+        adj
+    };
+
+    let si = input.i0;
+    let sj = 0;
+    let start = (si, sj);
+    let mut score = 0;
+
+    for t in 1..=input.T {
+        // beginning of month t
+        {
+            // check reachability
+            if !scheduled_works[t].is_empty() {
+                let mut visited = vec![vec![false; input.W]; input.H];
+
+                if workspace[si][sj].is_none() {
+                    let mut q = VecDeque::new();
+                    q.push_back(start);
+                    visited[si][sj] = true;
+
+                    while !q.is_empty() {
+                        let Some((x, y)) = q.pop_front() else { unreachable!() };
+                        assert!(workspace[x][y].is_none());
+                        for (x1, y1) in adj[x][y].iter().cloned() {
+                            if input.is_valid_point(x1, y1)
+                                && workspace[x1][y1].is_none()
+                                && !visited[x1][y1]
+                            {
+                                q.push_back((x1, y1));
+                                visited[x1][y1] = true;
+                            }
+                        }
+                    }
+                }
+
+                for &Work { k, i, j, .. } in &scheduled_works[t] {
+                    if !visited[i][j] {
+                        return (
+                            0,
+                            format!(
+                                "{} is scheduled at unreachable position {}, {}",
+                                k + 1,
+                                i,
+                                j
+                            ),
+                        );
+                    }
+                }
+            }
+
+            // update workspace
+            for &Work { k, i, j, s, .. } in &scheduled_works[t] {
+                if let Some((k1, _)) = workspace[i][j] {
+                    return (
+                        0,
+                        format!("Block ({}, {}) is occupied by crop {}", i, j, k1 + 1),
+                    );
+                } else {
+                    workspace[i][j] = Some((k, s))
+                }
+            }
+        }
+
+        // end of month t; harvest crops
+        let can_start = {
+            if let Some((k, _s)) = workspace[si][sj] {
+                input.D[k] == t
+            } else {
+                true
+            }
+        };
+
+        if can_start {
+            let mut q = VecDeque::new();
+            q.push_back(start);
+            let mut visited = vec![vec![false; input.W]; input.H];
+            visited[si][sj] = true;
+
+            while !q.is_empty() {
+                let Some((i, j)) = q.pop_front() else { unreachable!() };
+                if let Some((k, s)) = workspace[i][j] {
+                    if input.D[k] == t {
+                        workspace[i][j] = None;
+                        let span = t - s + 1;
+                        // this should hold because we do not
+                        // allow planting crop k after month S[k]
+                        assert!(span >= input.D[k] - input.S[k] + 1);
+                        score += input.D[k] - input.S[k] + 1;
+                    } else if input.D[k] < t {
+                        return (
+                            0,
+                            format!("Cannot harvest crop {} in month {}", k + 1, input.D[k]),
+                        );
+                    }
+                }
+
+                for &(i1, j1) in &adj[i][j] {
+                    assert!(input.is_valid_point(i1, j1));
+                    let is_blocked = {
+                        if let Some((k, _s)) = workspace[i1][j1] {
+                            input.D[k] > t
+                        } else {
+                            false
+                        }
+                    };
+                    if !is_blocked && !visited[i1][j1] {
+                        q.push_back((i1, j1));
+                        visited[i1][j1] = true;
+                    }
+                }
+            }
+        }
+    }
+
+    (
+        ((score as u64 * 1_000_000) as f64 / (input.H * input.W * input.T) as f64).round() as i64,
+        String::new(),
+    )
+}
+
 #[allow(clippy::suspicious_else_formatting)]
 fn simulated_annealing(input: &Input) -> Vec<Work> {
     const T0: f64 = 2e3; // 2000
@@ -198,10 +232,8 @@ fn simulated_annealing(input: &Input) -> Vec<Work> {
     // 初期解はランダム
     let mut rng = rand_pcg::Pcg64Mcg::new(890482);
     let mut best_plan = vec![Work::rnd_create(input)];
-    let mut used = vec![0; input.K];
-    used[best_plan[0].k] = 1;
-    // let mut to_vec = |m: &BTreeMap<usize, Work>| m.into_iter().map(|(k, v)| *v).collect_vec();
-    let mut best_score = compute_score(&best_plan, input);
+    let output = conv_works2output(&best_plan);
+    let (mut best_score, _) = compute_score(input, &output);
 
     loop {
         // 冷却スケジュール
@@ -213,10 +245,6 @@ fn simulated_annealing(input: &Input) -> Vec<Work> {
             }
             T = T0.powf(1.0 - t) * T1.powf(t);
         }
-
-        // TODO:
-        // 複数のk が入ってるs?
-        // 同じ区画を使ってしまう？　これは validate で弾ける。 上は同じものが入っていると厳しい？
         let mut tmp_plan = best_plan.clone();
         if rng.gen_bool(0.25) {
             // 一点変換
@@ -236,15 +264,11 @@ fn simulated_annealing(input: &Input) -> Vec<Work> {
         //     let p = &mut tmp_plan[i];
         //     let nk = rng.gen_range(0..input.K);
         //     // すでにk を使ってたら、２つ目は入れられない
-        //     if used[nk] != 1 {
-        //         let ran = 0..=input.S[p.k];
-        //         if !ran.is_empty() {
-        //             let ns = rng.gen_range(ran);
-        //             p.s = ns;
-        //             used[p.k] = 0;
-        //             used[nk] = 1;
-        //             p.k = nk;
-        //         }
+        //     let ran = 0..=input.S[nk];
+        //     if !ran.is_empty() {
+        //         let ns = rng.gen_range(ran);
+        //         p.s = ns;
+        //         p.k = nk;
         //     }
         // }
         // else if rng.gen_bool(0.25) {
@@ -258,12 +282,13 @@ fn simulated_annealing(input: &Input) -> Vec<Work> {
         else {
             // １計画を追加
             let np = Work::rnd_create(input);
-            if used[np.k] != 1 {
-                used[np.k] = 1;
-                best_plan.push(np);
-            }
+            tmp_plan.push(np);
         }
-        let tmp_score = compute_score(&tmp_plan, input);
+        let output = conv_works2output(&tmp_plan);
+        let (tmp_score, _) = compute_score(input, &output);
+        if tmp_score == 0 {
+            continue;
+        }
         let p: f64 = f64::exp((tmp_score - best_score) as f64) / T;
         if best_score < tmp_score || rng.gen_bool(p) {
             best_score = tmp_score;
@@ -277,97 +302,54 @@ fn solve(input: &Input) -> Vec<Work> {
     simulated_annealing(input)
 }
 
+fn conv_works2output(works: &[Work]) -> Output {
+    let works = works
+        .iter()
+        .map(|w| Work::new(w.k + 1, w.i, w.j, w.s + 1))
+        .collect_vec();
+    Output {
+        M: works.len(),
+        works,
+    }
+}
+
 fn main() {
     input! {
         T: usize,
         H: usize,
         W: usize,
         i0: usize,
-        h: [Chars;H-1],// 南側の水路
-        v: [Chars;H], // 東側の水路
+        h1: [Chars; H - 1],
+        v1: [Chars; H],
         K: usize,
-        SD: [(usize,usize); K],
+        SD: [(usize, usize); K],
     }
-
-    let mut S: Vec<usize> = vec![];
-    let mut D: Vec<usize> = vec![];
-    for (s, d) in SD {
-        S.push(s - 1);
-        D.push(d - 1);
-    }
-    // h,v は文字列で入力されるから、'0'->0, '1'->1 に変換.
-    let (nh, nv) = vec![h, v]
-        .into_iter()
-        .map(|xs| {
-            xs.into_iter()
-                .map(|cs| {
-                    cs.into_iter()
-                        .map(|c| if c == '0' { 0 } else { 1 })
-                        .collect::<Vec<usize>>()
-                })
-                .collect_vec()
-        })
-        .collect_tuple()
-        .unwrap();
-
-    let input: Input = Input {
+    let h = h1
+        .iter()
+        .map(|i| i.iter().map(|&b| b == '1').collect())
+        .collect();
+    let v = v1
+        .iter()
+        .map(|i| i.iter().map(|&b| b == '1').collect())
+        .collect();
+    let S = SD.iter().map(|x| x.0).collect();
+    let D = SD.iter().map(|x| x.1).collect();
+    let input = Input {
         T,
         H,
         W,
         i0,
-        h: nh,
-        v: nv,
+        h,
+        v,
         K,
         S,
         D,
     };
 
-    // 入力例1 を無事判定できることを確認.
-    // 一番下の開始日時を2 にするとfalse 判定.
-
-    // true pattern
-    // let works = vec![
-    //     Work::new(0, 0, 0, 1),
-    //     Work::new(1, 0, 1, 0),
-    //     Work::new(2, 1, 0, 3),
-    //     Work::new(3, 0, 2, 0),
-    //     Work::new(4, 3, 1, 1),
-    //     Work::new(5, 2, 0, 3),
-    //     Work::new(6, 4, 0, 1),
-    //     Work::new(9, 3, 2, 0),
-    //     Work::new(14, 2, 0, 7),
-    //     Work::new(17, 5, 0, 1),
-    //     Work::new(18, 0, 3, 0),
-    //     Work::new(19, 4, 1, 1),
-    // ];
-
-    // false pattern
-    // let works = vec![
-    //     Work::new(425, 7, 16, 0),
-    //     Work::new(4491, 17, 16, 0),
-    //     Work::new(4513, 10, 3, 0),
-    //     Work::new(5126, 2, 7, 0),
-    //     Work::new(2450, 8, 15, 0),
-    //     Work::new(5273, 17, 16, 1),
-    // ];
-
-    // println!("{}", validate(&works, &input));
-
     let works = solve(&input);
-    println!("{}", works.len());
-    for p in works {
-        println!("{} {} {} {}", p.k + 1, p.i, p.j, p.s + 1);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::numbering;
-
-    #[test]
-    fn test_numbearing() {
-        assert_eq!(numbering(0, 0, 4), 0);
-        assert_eq!(numbering(1, 0, 4), 4);
-        assert_eq!(numbering(2, 3, 4), 11);
+    let output = conv_works2output(&works);
+    println!("{}", output.M);
+    for w in output.works {
+        println!("{} {} {} {}", w.k, w.i, w.j, w.s);
     }
 }
