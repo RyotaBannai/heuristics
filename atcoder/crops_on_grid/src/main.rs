@@ -1,3 +1,4 @@
+use heuristics::utils::test_all::test_all;
 use itertools::Itertools;
 use proconio::{input, marker::Chars};
 use rand::Rng;
@@ -214,11 +215,8 @@ fn simulated_annealing(input: &Input) -> Vec<Work> {
             T = T0.powf(1.0 - t) * T1.powf(t);
         }
 
-        // TODO:
-        // 複数のk が入ってるs?
-        // 同じ区画を使ってしまう？　これは validate で弾ける。 上は同じものが入っていると厳しい？
         let mut tmp_plan = best_plan.clone();
-        if rng.gen_bool(0.25) {
+        if rng.gen_bool(0.2) {
             // 一点変換
             // 1. 期間をS に近づける
             let i = rng.gen_range(0..tmp_plan.len());
@@ -229,7 +227,7 @@ fn simulated_annealing(input: &Input) -> Vec<Work> {
                 p.s = ns;
             }
         }
-        // else if rng.gen_bool(0.25) {
+        // else if rng.gen_bool(0.07) {
         //     // 一点変換
         //     // 2.k を変える.
         //     let i = rng.gen_range(0..tmp_plan.len());
@@ -246,8 +244,7 @@ fn simulated_annealing(input: &Input) -> Vec<Work> {
         //             p.k = nk;
         //         }
         //     }
-        // }
-        // else if rng.gen_bool(0.25) {
+        // } else if rng.gen_bool(0.07) {
         //     // 一点変換
         //     // 3.区画を変える.
         //     let i = rng.gen_range(0..tmp_plan.len());
@@ -260,7 +257,7 @@ fn simulated_annealing(input: &Input) -> Vec<Work> {
             let np = Work::rnd_create(input);
             if used[np.k] != 1 {
                 used[np.k] = 1;
-                best_plan.push(np);
+                tmp_plan.push(np);
             }
         }
         let tmp_score = compute_score(&tmp_plan, input);
@@ -358,6 +355,7 @@ fn main() {
     for p in works {
         println!("{} {} {} {}", p.k + 1, p.i, p.j, p.s + 1);
     }
+    test_all();
 }
 
 #[cfg(test)]
