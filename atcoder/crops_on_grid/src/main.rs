@@ -21,7 +21,7 @@ impl Input {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Copy)]
 struct Work {
     k: usize,
     i: usize,
@@ -34,12 +34,15 @@ impl Work {
     }
     fn rnd_create(input: &Input) -> Self {
         let mut rng = rand::thread_rng(); // こっちを使う
-
-        // let mut rng = rand_pcg::Pcg64Mcg::new(890482);
-        let k = rng.gen_range(0..input.K);
+        let k = rng.gen_range(1..=input.K);
         let i = rng.gen_range(0..input.H);
         let j = rng.gen_range(0..input.W);
-        let s = rng.gen_range(0..=input.S[k]);
+        let ran = 1..=input.S[k - 1];
+        let s = if ran.is_empty() {
+            1
+        } else {
+            rng.gen_range(ran)
+        };
         Self::new(k, i, j, s)
     }
 }
@@ -221,7 +224,7 @@ fn compute_score(input: &Input, out: &Output) -> (i64, String) {
 }
 
 #[allow(clippy::suspicious_else_formatting)]
-fn simulated_annealing(input: &Input) -> Vec<Work> {
+fn simulated_annealing(input: &Input) -> Output {
     const T0: f64 = 2e3; // 2000
     const T1: f64 = 6e2; // 600
     const TL: f64 = 0.2;
@@ -231,9 +234,8 @@ fn simulated_annealing(input: &Input) -> Vec<Work> {
     let mut T = T0;
     // 初期解はランダム
     let mut rng = rand_pcg::Pcg64Mcg::new(890482);
-    let mut best_plan = vec![Work::rnd_create(input)];
-    let output = conv_works2output(&best_plan);
-    let (mut best_score, _) = compute_score(input, &output);
+    let mut best_plan: Vec<Work> = vec![];
+    let mut best_score = 0;
 
     loop {
         // 冷却スケジュール
@@ -245,47 +247,41 @@ fn simulated_annealing(input: &Input) -> Vec<Work> {
             }
             T = T0.powf(1.0 - t) * T1.powf(t);
         }
+
         let mut tmp_plan = best_plan.clone();
-        if rng.gen_bool(0.25) {
-            // 一点変換
-            // 1. 期間をS に近づける
-            let i = rng.gen_range(0..tmp_plan.len());
-            let p = &mut tmp_plan[i];
-            let ran = p.s..=input.S[p.k];
-            if !ran.is_empty() {
-                let ns = rng.gen_range(ran);
-                p.s = ns;
-            }
-        }
-        // else if rng.gen_bool(0.25) {
-        //     // 一点変換
-        //     // 2.k を変える.
-        //     let i = rng.gen_range(0..tmp_plan.len());
-        //     let p = &mut tmp_plan[i];
-        //     let nk = rng.gen_range(0..input.K);
-        //     // すでにk を使ってたら、２つ目は入れられない
-        //     let ran = 0..=input.S[nk];
-        //     if !ran.is_empty() {
-        //         let ns = rng.gen_range(ran);
-        //         p.s = ns;
-        //         p.k = nk;
-        //     }
-        // }
-        // else if rng.gen_bool(0.25) {
-        //     // 一点変換
-        //     // 3.区画を変える.
-        //     let i = rng.gen_range(0..tmp_plan.len());
-        //     let p = &mut tmp_plan[i];
-        //     p.i = rng.gen_range(0..input.H);
-        //     p.j = rng.gen_range(0..input.W);
-        // }
-        else {
+
+        if tmp_plan.is_empty() || rng.gen_bool(0.8) {
             // １計画を追加
             let np = Work::rnd_create(input);
             tmp_plan.push(np);
+        } else if rng.gen_bool(0.1) {
+            // 一点変換: k を変える.
+            let i = rng.gen_range(0..tmp_plan.len());
+            let p = &mut tmp_plan[i];
+            let nk = rng.gen_range(1..=input.K);
+            let ran = 1..=input.S[nk - 1];
+            let ns = if ran.is_empty() {
+                1
+            } else {
+                rng.gen_range(ran)
+            };
+            p.s = ns;
+            p.k = nk;
+        } else {
+            // 一点変換: 区画を変える.
+            let i = rng.gen_range(0..tmp_plan.len());
+            let p = &mut tmp_plan[i];
+            p.i = rng.gen_range(0..input.H);
+            p.j = rng.gen_range(0..input.W);
         }
-        let output = conv_works2output(&tmp_plan);
-        let (tmp_score, _) = compute_score(input, &output);
+
+        let (tmp_score, _) = compute_score(
+            input,
+            &Output {
+                M: tmp_plan.len(),
+                works: tmp_plan.clone(),
+            },
+        );
         if tmp_score == 0 {
             continue;
         }
@@ -295,22 +291,14 @@ fn simulated_annealing(input: &Input) -> Vec<Work> {
             best_plan = tmp_plan;
         }
     }
-    best_plan
-}
-
-fn solve(input: &Input) -> Vec<Work> {
-    simulated_annealing(input)
-}
-
-fn conv_works2output(works: &[Work]) -> Output {
-    let works = works
-        .iter()
-        .map(|w| Work::new(w.k + 1, w.i, w.j, w.s + 1))
-        .collect_vec();
     Output {
-        M: works.len(),
-        works,
+        M: best_plan.len(),
+        works: best_plan,
     }
+}
+
+fn solve(input: &Input) -> Output {
+    simulated_annealing(input)
 }
 
 fn main() {
@@ -346,8 +334,7 @@ fn main() {
         D,
     };
 
-    let works = solve(&input);
-    let output = conv_works2output(&works);
+    let output = solve(&input);
     println!("{}", output.M);
     for w in output.works {
         println!("{} {} {} {}", w.k, w.i, w.j, w.s);
