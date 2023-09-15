@@ -1,20 +1,120 @@
-use heuristics::utils::test_all::test_all;
 use itertools::Itertools;
 use proconio::{input, marker::Chars};
 use rand::Rng;
-use std::collections::{BTreeMap, BTreeSet, BinaryHeap, VecDeque};
-use std::time;
 
+use std::{
+    collections::{BTreeMap, BTreeSet, BinaryHeap, VecDeque},
+    error::Error,
+    fs::{self, File},
+    io::{BufRead, BufReader},
+    path::PathBuf,
+    time,
+};
+
+// 以下を完全自動化する.
+// 指定したフォルダ配下の全てのテストファイルに対して、solve を実行
+// 実行した結果をvalidation にかける.
+// あらゆるテストケースでvalidation が通るかどうかを検証する
+// グリッドを i,j で表現.
+
+pub fn test_all(dir: String) -> Result<(), Box<dyn Error>> {
+    let mut in_dir = PathBuf::new();
+    in_dir.push(dir);
+    for (i, entry) in fs::read_dir(in_dir)?.enumerate() {
+        let entry = entry?;
+        let path = entry.path();
+
+        let in_file = File::open(path)?;
+        let buffered = BufReader::new(in_file);
+
+        let mut lines = buffered.lines().map(|l| l.unwrap());
+
+        let (T, H, W, i0) = lines
+            .next()
+            .ok_or("初めの行が読み込めない")?
+            .split(' ')
+            .map(|x| (x.parse::<usize>().unwrap()))
+            .collect_tuple::<(usize, usize, usize, usize)>()
+            .ok_or("(T,H,W,i0) になっていない")?;
+
+        let mut h = vec![];
+        let mut v = vec![];
+        for _ in 0..H - 1 {
+            let row = lines
+                .next()
+                .ok_or("h が足りない")?
+                .chars()
+                .map(|c| c == '1')
+                .collect_vec();
+            h.push(row);
+        }
+        for _ in 0..H {
+            let row = lines
+                .next()
+                .ok_or("v が足りない")?
+                .chars()
+                .map(|c| c == '1')
+                .collect_vec();
+            v.push(row);
+        }
+        let K = lines.next().ok_or("K が取り出せない")?.parse::<usize>()?;
+        let mut S = vec![];
+        let mut D = vec![];
+        for _ in 0..K {
+            let line = lines.next().ok_or("s,d が足りない")?;
+            let (s, d) = line
+                .split(' ')
+                .map(|x| x.parse::<usize>().unwrap())
+                .collect_tuple::<(usize, usize)>()
+                .ok_or("tuple(s,d) になっていない")?;
+            S.push(s);
+            D.push(d);
+        }
+        let input = Input::new(T, H, W, i0, h, v, K, S, D);
+
+        let kk = input.K;
+    }
+
+    Ok(())
+}
+
+#[derive(Clone, Debug)]
 struct Input {
     T: usize,
     H: usize,
     W: usize,
     i0: usize,
-    h: Vec<Vec<usize>>,
-    v: Vec<Vec<usize>>,
+    h: Vec<Vec<bool>>,
+    v: Vec<Vec<bool>>,
     K: usize,
     S: Vec<usize>,
     D: Vec<usize>,
+}
+impl Input {
+    #[allow(clippy::too_many_arguments)]
+    fn new(
+        T: usize,
+        H: usize,
+        W: usize,
+        i0: usize,
+        h: Vec<Vec<bool>>,
+        v: Vec<Vec<bool>>,
+        K: usize,
+        S: Vec<usize>,
+        D: Vec<usize>,
+    ) -> Self {
+        Self {
+            T,
+            H,
+            W,
+            i0,
+            h,
+            v,
+            K,
+            S,
+            D,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -70,8 +170,8 @@ fn validate(works: &[Work], input: &Input) -> bool {
 
     // 水路があれば隣接する区画から辺を取り除く.
     for (i, row) in input.h.iter().enumerate() {
-        for (j, &x) in row.iter().enumerate() {
-            if x == 1 {
+        for (j, &b) in row.iter().enumerate() {
+            if b {
                 // もし水路があれば、`南側`の隣接する頂点間の経路を両隣接リストから取り除く.
                 let up = num(i, j);
                 let low = num(i + 1, j);
@@ -82,8 +182,8 @@ fn validate(works: &[Work], input: &Input) -> bool {
     }
 
     for (i, row) in input.v.iter().enumerate() {
-        for (j, &x) in row.iter().enumerate() {
-            if x == 1 {
+        for (j, &b) in row.iter().enumerate() {
+            if b {
                 // もし水路があれば、`東側`の隣接する頂点間の経路を両隣接リストから取り除く.
                 let left = num(i, j);
                 let right = num(i, j + 1);
@@ -297,11 +397,7 @@ fn main() {
         .into_iter()
         .map(|xs| {
             xs.into_iter()
-                .map(|cs| {
-                    cs.into_iter()
-                        .map(|c| if c == '0' { 0 } else { 1 })
-                        .collect::<Vec<usize>>()
-                })
+                .map(|cs| cs.into_iter().map(|c| c == '1').collect_vec())
                 .collect_vec()
         })
         .collect_tuple()
@@ -350,12 +446,12 @@ fn main() {
 
     // println!("{}", validate(&works, &input));
 
-    let works = solve(&input);
-    println!("{}", works.len());
-    for p in works {
-        println!("{} {} {} {}", p.k + 1, p.i, p.j, p.s + 1);
-    }
-    test_all();
+    // let works = solve(&input);
+    // println!("{}", works.len());
+    // for p in works {
+    //     println!("{} {} {} {}", p.k + 1, p.i, p.j, p.s + 1);
+    // }
+    test_all("./in".to_string());
 }
 
 #[cfg(test)]
