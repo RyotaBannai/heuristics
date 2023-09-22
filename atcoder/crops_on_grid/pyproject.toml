@@ -12,6 +12,7 @@ ruff = "^0.0.290"
 mypy = "^1.5.1"
 scipy = "^1.11.2"
 ipdb = "^0.13.13"
+numpy = "^1.26.0"
 
 
 [build-system]
