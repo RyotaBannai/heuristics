@@ -1,0 +1,35 @@
+[tool.poetry]
+name = "topological_map"
+version = "0.1.0"
+description = ""
+authors = ["RyotaBannai <ryotala0528@gmail.com>"]
+readme = "README.md"
+packages = [{ include = "src" }]
+
+[tool.poetry.dependencies]
+python = ">=3.11,<3.13"
+ruff = "^0.0.290"
+mypy = "^1.5.1"
+scipy = "^1.11.2"
+ipdb = "^0.13.13"
+numpy = "^1.26.0"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+
+[tool.ruff]
+select = [
+    "E",    # pycodestyle
+    "F",    # pyflakes
+    "UP",   # pyupgrade
+    "D",    # pydocstyle
+    "I001", # isort https://beta.ruff.rs/docs/faq/#does-ruff-support-jupyter-notebooks
+]
+
+src = ["py_src", "tests"]
+
+[tool.ruff.pydocstyle]
+convention = "google"
